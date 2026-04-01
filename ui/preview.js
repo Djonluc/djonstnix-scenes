@@ -48,6 +48,12 @@ function hidePreview() {
     previewImage.onload = null;
     previewImage.onerror = null;
     previewImage.removeAttribute('src');
+    
+    const dimensionsEl = document.getElementById('preview-dimensions');
+    if (dimensionsEl) {
+        dimensionsEl.textContent = '';
+        dimensionsEl.classList.add('hidden');
+    }
 }
 
 function setBrowserStatus(message, state) {
@@ -249,6 +255,12 @@ window.addEventListener('message', (event) => {
 
         const width = previewImage.naturalWidth || 0;
         const height = previewImage.naturalHeight || 0;
+        
+        const dimensionsEl = document.getElementById('preview-dimensions');
+        if (dimensionsEl) {
+            dimensionsEl.textContent = `${width} x ${height}`;
+            dimensionsEl.classList.remove('hidden');
+        }
 
         postJson('scenePreviewStatus', {
             source: data.src,

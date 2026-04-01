@@ -215,8 +215,17 @@ local function NormalizeScene(scene)
     normalized.color.g = Clamp(normalized.color.g or 255, 0, 255)
     normalized.color.b = Clamp(normalized.color.b or 255, 0, 255)
     normalized.distance = Clamp(normalized.distance or GetDefaultDistance(), 1.0, 20.0)
-    normalized.imageScale = Clamp(normalized.imageScale or GetDefaultImageScale(), 0.5, 8.0)
+    normalized.imageScale = Clamp(normalized.imageScale or GetDefaultImageScale(), 0.1, 20.0)
     normalized.imageAspectRatio = Clamp(normalized.imageAspectRatio or 1.0, 0.2, 5.0)
+    normalized.imageWidth = tonumber(normalized.imageWidth)
+    normalized.imageHeight = tonumber(normalized.imageHeight)
+    
+    -- If dimensions are missing or are the legacy default, mark for possible auto-correction
+    if not normalized.imageWidth or not normalized.imageHeight or (normalized.imageWidth == 1024 and normalized.imageHeight == 1024) then
+        normalized.imageWidth = 1024
+        normalized.imageHeight = 1024
+        normalized.legacyDimensions = true
+    end
     normalized.textScale = Clamp(normalized.textScale or GetDefaultTextScale(), 0.2, 1.25)
     normalized.durationMinutes = Clamp(normalized.durationMinutes or 0, 0, 43200)
     normalized.font = Trim(normalized.font)
@@ -261,53 +270,6 @@ local function BuildSceneDraft(existingScene)
     return scene
 end
 
-local function ShouldAutoScaleImage(sceneDraft)
-    local defaultScale = GetDefaultImageScale()
-    return math.abs((sceneDraft.imageScale or defaultScale) - defaultScale) <= 0.01
-end
-
-local function GetAutoImageScale(width, height, aspectRatio)
-    local scale = GetDefaultImageScale()
-    aspectRatio = Clamp(aspectRatio or 1.0, 0.2, 5.0)
-    width = tonumber(width) or 0
-    height = tonumber(height) or 0
-
-    if aspectRatio >= 2.2 then
-        scale = scale * 1.22
-    elseif aspectRatio >= 1.85 then
-        scale = scale * 1.14
-    elseif aspectRatio >= 1.35 then
-        scale = scale * 1.08
-    elseif aspectRatio <= 0.42 then
-        scale = scale * 0.68
-    elseif aspectRatio <= 0.58 then
-        scale = scale * 0.76
-    elseif aspectRatio <= 0.72 then
-        scale = scale * 0.84
-    elseif aspectRatio <= 0.9 then
-        scale = scale * 0.93
-    end
-
-    local shortestSide = math.min(width, height)
-    local longestSide = math.max(width, height)
-    if longestSide >= 1400 then
-        scale = scale + 0.1
-    elseif longestSide > 0 and longestSide <= 420 then
-        scale = scale - 0.08
-    end
-
-    if aspectRatio < 1.0 and height > width then
-        local portraitDominance = Clamp(height / math.max(width, 1), 1.0, 3.0)
-        scale = scale - ((portraitDominance - 1.0) * 0.12)
-
-        if shortestSide > 0 and shortestSide <= 500 then
-            scale = scale - 0.05
-        end
-    end
-
-    return Clamp(scale, 0.5, 8.0)
-end
-
 local function NormalizeImageSource(path)
     if not path or path == '' then
         return nil
@@ -339,8 +301,24 @@ local function DestroyImageCache()
         if image.dui then
             DestroyDui(image.dui)
         end
+        -- Note: Runtime TXDs are automatically garbage collected when no textures exist
+        -- but clearing the cache ensures we don't reuse stale handles.
         imageCache[key] = nil
     end
+
+    print('^5[DjonStNix Scenes]^7 Image cache and textures purged.')
+end
+
+local function DestroyImageCacheEntry(key)
+    if not imageCache[key] then
+        return
+    end
+
+    if imageCache[key].dui then
+        DestroyDui(imageCache[key].dui)
+    end
+
+    imageCache[key] = nil
 end
 
 local function HideScenePreview()
@@ -636,38 +614,67 @@ local function GetSceneImage(scene, id)
         return nil
     end
 
-    local cacheKey = ('scene_%s_%s'):format(id, imagePath)
+    local width = tonumber(scene.imageWidth) or 1024
+    local height = tonumber(scene.imageHeight) or 1024
+    
+    -- Generate a unique hash for this specific image and resolution combination
+    local hash = joaat(('%s_%d_%d'):format(imagePath, width, height))
+    local cacheKey = ('scene_%s_%s'):format(id, hash)
+
     if imageCache[cacheKey] then
         return imageCache[cacheKey]
     end
 
-    local txdName = ('mtc_scene_%s'):format(id)
+    -- Use a unique TXD name for every specific texture resolution to prevent collisions
+    local txdName = ('scn_%s'):format(hash)
     local txd = CreateRuntimeTxd(txdName)
+    local txnName = 'img'
+    
+    print(('^5[DjonStNix Scenes]^7 Texture Resolve: %dx%d for ID: %s'):format(width, height, id))
+    
+    -- Auto-correction for legacy scenes: if we detect 1024x1024 but suspect it's wrong
+    if scene.legacyDimensions and id ~= 'placement' and not scene.isCheckingDimensions then
+        scene.isCheckingDimensions = true
+        CreateThread(function()
+            print(('^5[DjonStNix Scenes]^7 Background dimension check for legacy scene ID: %s'):format(id))
+            local detection = ShowScenePreview(scene.imagePath)
+            if detection.ok then
+                print(('^5[DjonStNix Scenes]^7 Corrected ID %s to %dx%d'):format(id, detection.width, detection.height))
+                -- Report back to server to persist the fix
+                lib.callback.await('qb-scenes:server:updateSceneDimensions', nil, id, detection.width, detection.height)
+            end
+            scene.isCheckingDimensions = false
+            scene.legacyDimensions = false
+        end)
+    end
+
     local duiUrl = ('https://cfx-nui-%s/ui/image.html?src=%s'):format(GetCurrentResourceName(), UrlEncode(imagePath))
-    local dui = CreateDui(duiUrl, 1024, 1024)
+    local dui = CreateDui(duiUrl, width, height)
     local duiHandle = GetDuiHandle(dui)
 
-    CreateRuntimeTextureFromDuiHandle(txd, 'scene_image', duiHandle)
+    CreateRuntimeTextureFromDuiHandle(txd, txnName, duiHandle)
 
     imageCache[cacheKey] = {
         txd = txdName,
-        txn = 'scene_image',
+        txn = txnName,
         dui = dui,
+        width = width,
+        height = height
     }
 
     return imageCache[cacheKey]
 end
 
 local function GetImageSpriteSize(scene, distance)
-    local ratio = Clamp(scene.imageAspectRatio or 1.0, 0.2, 5.0)
-    local scale = Clamp(scene.imageScale or GetDefaultImageScale(), 0.5, 8.0)
-    local base = math.max(0.05, 0.35 * (scale / math.max(distance, 1.0)))
-
-    if ratio >= 1.0 then
-        return base, base / ratio
-    end
-
-    return base * ratio, base
+    local width = tonumber(scene.imageWidth) or 1024
+    local height = tonumber(scene.imageHeight) or 1024
+    local scale = Clamp(scene.imageScale or GetDefaultImageScale(), 0.1, 20.0)
+    
+    local baseUnit = 0.35 * (scale / math.max(distance, 1.0))
+    local screenAspectRatio = GetScreenAspectRatio(false)
+    
+    -- Multiply height by the screen aspect ratio to compensate for GTA's coordinate distortion
+    return (width / 1024.0) * baseUnit, (height / 1024.0) * baseUnit * screenAspectRatio
 end
 
 local function DrawImage3D(scene, id, options)
@@ -688,6 +695,14 @@ local function DrawImage3D(scene, id, options)
 
     local width, height = GetImageSpriteSize(scene, distance)
     DrawSprite(image.txd, image.txn, screenX, screenY, width, height, 0.0, 255, 255, 255, alpha)
+
+    if GetImageConfigValue('debug', false) then
+        local thickness = 0.0015
+        DrawRect(screenX, screenY - (height / 2), width, thickness, 255, 255, 255, 200) -- Top
+        DrawRect(screenX, screenY + (height / 2), width, thickness, 255, 255, 255, 200) -- Bottom
+        DrawRect(screenX - (width / 2), screenY, thickness, height + thickness, 255, 255, 255, 200) -- Left
+        DrawRect(screenX + (width / 2), screenY, thickness, height + thickness, 255, 255, 255, 200) -- Right
+    end
 end
 
 local function DrawScene(scene, id, options)
@@ -761,7 +776,7 @@ end
 
 local function ApplyPrimaryScaleDelta(sceneDraft, delta)
     if sceneDraft.imagePath ~= '' then
-        sceneDraft.imageScale = Clamp(sceneDraft.imageScale + delta, 0.5, 8.0)
+        sceneDraft.imageScale = Clamp(sceneDraft.imageScale + delta, 0.1, 20.0)
         return
     end
 
@@ -942,8 +957,8 @@ local function OpenSceneForm(title, scene, includeReposition)
             label = Lang:t('createScene.image_size_label'),
             description = Lang:t('createScene.image_size_description'),
             default = math.floor(draft.imageScale * 100),
-            min = 50,
-            max = 800,
+            min = 10,
+            max = 2000,
             required = true,
         },
         {
@@ -988,9 +1003,11 @@ local function OpenSceneForm(title, scene, includeReposition)
         textAnimation = input[5] or draft.textAnimation,
         textScale = Clamp((tonumber(input[6]) or math.floor(GetDefaultTextScale() * 100)) / 100, 0.2, 1.25),
         imagePath = Trim(input[7]),
-        imageScale = Clamp((tonumber(input[8]) or math.floor(GetDefaultImageScale() * 100)) / 100, 0.5, 8.0),
+        imageScale = Clamp((tonumber(input[8]) or math.floor(GetDefaultImageScale() * 100)) / 100, 0.1, 20.0),
         durationMinutes = Clamp(tonumber(input[9]) or 0, 0, 43200),
         distance = Clamp((tonumber(input[10]) or math.floor(GetDefaultDistance() * 10)) / 10, 1.0, 20.0),
+        imageWidth = draft.imageWidth or 1024,
+        imageHeight = draft.imageHeight or 1024,
         imageAspectRatio = draft.imageAspectRatio or 1.0,
         reposition = includeReposition and input[11] == true or false,
         coords = draft.coords,
@@ -1026,10 +1043,23 @@ local function PrepareSceneImageDraft(sceneDraft)
         return false
     end
 
-    sceneDraft.imageAspectRatio = Clamp(preview.aspectRatio or 1.0, 0.2, 5.0)
-    if ShouldAutoScaleImage(sceneDraft) and not GetImageConfigValue('disableAutoScale', false) then
-        sceneDraft.imageScale = GetAutoImageScale(preview.width, preview.height, sceneDraft.imageAspectRatio)
+    -- Clear any stale 'placement' cache for this URL
+    for key, _ in pairs(imageCache) do
+        if key:find('^scene_placement_' .. sceneDraft.imagePath) then
+            DestroyImageCacheEntry(key)
+        end
     end
+
+    sceneDraft.imageWidth = tonumber(preview.width) or 1024
+    sceneDraft.imageHeight = tonumber(preview.height) or 1024
+    sceneDraft.imageAspectRatio = Clamp(preview.aspectRatio or 1.0, 0.2, 5.0)
+
+    print(('^5[DjonStNix Scenes]^7 Loaded Image: %dx%d (Ratio: %.2f)'):format(
+        sceneDraft.imageWidth,
+        sceneDraft.imageHeight,
+        sceneDraft.imageAspectRatio
+    ))
+
     QBCore.Functions.Notify(Lang:t('notify.preview_loaded'), 'success')
 
     if not ConfirmPreview() then
@@ -1085,10 +1115,9 @@ local function browseSceneMedia()
     local width = tonumber(selection.width) or 0
     local height = tonumber(selection.height) or 0
     if width > 0 and height > 0 then
+        seedScene.imageWidth = width
+        seedScene.imageHeight = height
         seedScene.imageAspectRatio = Clamp(width / height, 0.2, 5.0)
-        if not GetImageConfigValue('disableAutoScale', false) then
-            seedScene.imageScale = GetAutoImageScale(width, height, seedScene.imageAspectRatio)
-        end
     end
 
     createScene(seedScene)
@@ -1259,7 +1288,6 @@ RegisterNUICallback('scenePreviewStatus', function(data, cb)
     end
 
     previewState.loaded = data.loaded == true
-    previewState.pending = false
     previewState.width = tonumber(data.width) or nil
     previewState.height = tonumber(data.height) or nil
 
@@ -1269,6 +1297,7 @@ RegisterNUICallback('scenePreviewStatus', function(data, cb)
         previewState.aspectRatio = 1.0
     end
 
+    previewState.pending = false
     cb({ ok = true })
 end)
 

@@ -7,7 +7,7 @@ Config.SceneImages = {
     validateStoredRemoteImages = true,
     previewTimeoutMs = 30000,
     previewRetryCount = 2,
-    maxRemoteFileSize = 8 * 1024 * 1024,
+    maxRemoteFileSize = 128 * 1024 * 1024,
     allowDirectRemoteUrls = false,
     disableAutoScale = false,
     mirrorExternalUrlsToFivemanage = true,
@@ -28,7 +28,8 @@ Config.SceneImages = {
         jpeg = true,
         webp = true,
         gif = true,
-    }
+    },
+    debug = false
 }
 
 Config.ScenePermissions = {

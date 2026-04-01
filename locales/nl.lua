@@ -78,6 +78,8 @@ local Translations = {
         slider_description = "Hoe ver weg de scene zichtbaar blijft.",
         reposition_label = "Scene Verplaatsen",
         reposition_description = "Schakel dit in om de bewerkte scene op een nieuwe locatie te plaatsen.",
+        aspect_ratio_label = "Beeldverhouding",
+        aspect_ratio_description = "0.2 = Hoog portret | 1.0 = Vierkant | 3.0 = Breed landschap",
     },
 
     browser = {

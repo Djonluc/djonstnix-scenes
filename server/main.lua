@@ -726,7 +726,9 @@ local function BuildScenePayload(source, data, existingScene)
         color = NormalizeColor(data.color or existingScene.color),
         distance = Clamp(data.distance or existingScene.distance or GetDefaultDistance(), 1.0, 20.0),
         imagePath = imageValidation.imagePath,
-        imageScale = Clamp(data.imageScale or existingScene.imageScale or GetDefaultImageScale(), 0.5, 8.0),
+        imageScale = Clamp(data.imageScale or existingScene.imageScale or GetDefaultImageScale(), 0.1, 20.0),
+        imageWidth = tonumber(data.imageWidth or existingScene.imageWidth) or 1024,
+        imageHeight = tonumber(data.imageHeight or existingScene.imageHeight) or 1024,
         imageAspectRatio = Clamp(data.imageAspectRatio or existingScene.imageAspectRatio or 1.0, 0.2, 5.0),
         textScale = Clamp(data.textScale or existingScene.textScale or GetDefaultTextScale(), 0.2, 1.25),
         durationMinutes = durationMinutes,
@@ -752,7 +754,9 @@ local function NormalizeLoadedScene(scene)
         payload.coords = NormalizeCoords(payload.coords)
         payload.color = NormalizeColor(payload.color)
         payload.distance = Clamp(payload.distance or GetDefaultDistance(), 1.0, 20.0)
-        payload.imageScale = Clamp(payload.imageScale or GetDefaultImageScale(), 0.5, 8.0)
+        payload.imageScale = Clamp(payload.imageScale or GetDefaultImageScale(), 0.1, 20.0)
+        payload.imageWidth = tonumber(payload.imageWidth) or 1024
+        payload.imageHeight = tonumber(payload.imageHeight) or 1024
         payload.imageAspectRatio = Clamp(payload.imageAspectRatio or 1.0, 0.2, 5.0)
         payload.textScale = Clamp(payload.textScale or GetDefaultTextScale(), 0.2, 1.25)
         payload.durationMinutes = NormalizeDurationMinutes(payload.durationMinutes)
@@ -951,6 +955,24 @@ lib.callback.register('qb-scenes:server:destoryScene', function(source, id)
     table.remove(scenes, id)
     RefreshScenes()
     return { ok = true }
+end)
+
+lib.callback.register('qb-scenes:server:updateSceneDimensions', function(source, id, width, height)
+    id = tonumber(id)
+    local scene = scenes[id]
+    if not scene then
+        return false
+    end
+
+    print(('^5[DjonStNix Scenes]^7 Migrating legacy dimensions for ID: %s (%dx%d)'):format(id, width, height))
+    scene.imageWidth = tonumber(width) or 1024
+    scene.imageHeight = tonumber(height) or 1024
+    scene.imageAspectRatio = scene.imageWidth / scene.imageHeight
+    
+    -- No need to call SaveScenes here as the periodical cleanup and resource stop handle it
+    -- but we trigger a refresh so everyone sees the corrected shape in real-time
+    RefreshScenes()
+    return true
 end)
 
 RegisterNetEvent('djonstnix-scenes:server:LoadScenes', function()

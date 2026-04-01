@@ -78,6 +78,8 @@ local Translations = {
         slider_description = "How far away the scene can be seen.",
         reposition_label = "Reposition Scene",
         reposition_description = "Enable this to place the edited scene at a new location.",
+        aspect_ratio_label = "Image Aspect Ratio",
+        aspect_ratio_description = "0.2 = Extreme Portrait | 1.0 = Square | 3.0 = Extreme Landscape",
     },
 
     browser = {
