@@ -1,0 +1,115 @@
+local Translations = {
+    notify = {
+        scene_visibility = "Scenes zijn nu ",
+        scene_visibility_visible = "zichtbaar.",
+        scene_visibility_hidden = "verborgen.",
+        not_placed = "Plaatsen van de scene is geannuleerd.",
+        failed = "Het maken van de scene is mislukt.",
+        failed_update = "Het bewerken van de scene is mislukt.",
+        failed_destroy = "Het verwijderen van de scene is mislukt.",
+        failed_destory = "Het verwijderen van de scene is mislukt.",
+        succes_destroy = "Scene verwijderd.",
+        scene_created = "Scene gemaakt.",
+        scene_updated = "Scene bijgewerkt.",
+        scene_nearby = "Geen scene in de buurt.",
+        scene_missing = "Die scene bestaat niet meer.",
+        scene_content_required = "Voeg tekst of een afbeelding toe voordat je de scene plaatst.",
+        scene_no_permission = "Alleen de eigenaar of een admin kan deze scene bewerken of verwijderen.",
+        scene_invalid_coords = "De positie van de scene is ongeldig.",
+        scene_banned = "Je bent verbannen van het gebruiken van scenes.",
+        image_preparing = "Afbeelding wordt voorbereid...",
+        preview_failed = "Voorbeeld van afbeelding laden mislukt. Probeer een andere link of gebruik een lokaal bestand in ui/images.",
+        preview_loaded = "Voorbeeld van afbeelding geladen.",
+        preview_cancelled = "Scene maken geannuleerd.",
+        preview_usage = "Gebruik /scenepreview [afbeelding URL of lokaal pad]",
+        image_validation_failed = "Validatie van afbeelding mislukt.",
+        image_invalid_url = "Die afbeelding URL is ongeldig.",
+        image_https_required = "Gebruik een https afbeelding URL.",
+        image_not_allowed_host = "Die afbeelding host is niet toegestaan op deze server.",
+        image_invalid_extension = "Gebruik een direct afbeeldingsbestand dat eindigt op .png, .jpg, .jpeg, .webp of .gif.",
+        image_remote_unreachable = "De server kon die afbeelding URL niet verifiëren.",
+        image_remote_too_large = "Die afbeelding is te groot voor scene uploads.",
+        image_local_disabled = "Lokale afbeeldingsbestanden zijn uitgeschakeld op deze server.",
+        image_local_path_invalid = "Lokale afbeeldingspaden moeten beginnen met ui/images/.",
+        image_local_missing = "Dat lokale afbeeldingsbestand is niet gevonden in ui/images/.",
+        image_upload_not_configured = "Scene uploads zijn nog niet geconfigureerd. Voeg eerst je FiveManage API sleutel toe.",
+        image_upload_failed = "De server kon die afbeelding niet uploaden naar FiveManage.",
+        browser_not_configured = "Er zijn nog geen media browser providers geconfigureerd. Voeg eerst een provider API sleutel toe.",
+        browser_provider_unavailable = "Die media provider is niet beschikbaar op deze server.",
+        browser_search_failed = "De media browser zoekopdracht is mislukt. Probeer het zo opnieuw.",
+    },
+
+    textUI = {
+        preview = "Afbeelding voorbeeld: E om door te gaan, Backspace om te annuleren",
+        place_preview = "Plaatsing preview: E om te plaatsen | Backspace om te annuleren | Muiswiel voor afbeelding | Shift + muiswiel voor tekst",
+    },
+
+    chatMessages = {
+        banned = "Speler is verbannen van het gebruiken van scenes."
+    },
+
+    commands = {
+        ban_description = "Ban een speler van het gebruiken van scenes",
+        player_id = "Speler ID",
+    },
+
+    createScene = {
+        new_scene = "Maak Nieuwe Scene",
+        edit_scene = "Bewerk Scene",
+        input_label = "Tekst",
+        input_description = "Optionele scene tekst.",
+        color_label = "Tekst Kleur",
+        color_description = "De kleur die gebruikt wordt voor scene tekst.",
+        font_label = "Lettertype",
+        font_description = "Kies een GTA lettertype dat goed leesbaar blijft.",
+        effect_label = "Tekst Effect",
+        effect_description = "Gebruik clean, outline, shadow, neon, ghost, premium of warning styling.",
+        animation_label = "Tekst Animatie",
+        animation_description = "Voeg beweging toe zoals pulse, float, flicker, glitch of breathe.",
+        text_size_label = "Tekst Grootte",
+        text_size_description = "Hoe groot de tekst in game verschijnt.",
+        image_label = "Afbeelding Pad of URL",
+        image_description = "Plak een directe afbeelding URL. De server spiegelt die naar FiveManage en slaat het gehoste resultaat op.",
+        image_size_label = "Afbeelding Grootte",
+        image_size_description = "Regelt de grootte van de afbeelding voor en na plaatsing.",
+        timer_label = "Timer (Minuten)",
+        timer_description = "Bepaal hoe lang de scene blijft staan. Gebruik 0 om hem permanent te houden.",
+        slider_label = "Zicht Afstand",
+        slider_description = "Hoe ver weg de scene zichtbaar blijft.",
+        reposition_label = "Scene Verplaatsen",
+        reposition_description = "Schakel dit in om de bewerkte scene op een nieuwe locatie te plaatsen.",
+    },
+
+    browser = {
+        title = "Scene Media Browser",
+        subtitle = "Zoek gehoste GIFs en gebruik ze direct voor een scene.",
+        search_placeholder = "Zoek naar een GIF of afbeelding idee...",
+        search_button = "Zoeken",
+        empty = "Zoek om media resultaten te laden.",
+        searching = "Zoeken...",
+        no_results = "Geen resultaten gevonden voor deze zoekopdracht.",
+        close = "Sluiten",
+    },
+
+    optionsScene = {
+        toggle = "Toggle Scenes",
+        toggle_description = "Verberg of toon alle scenes alleen voor jezelf.",
+        create = "Maak Scene",
+        create_description = "Maak een nieuwe DjonStNix scene met tekst of een afbeelding.",
+        browse = "Blader Media",
+        browse_description = "Zoek ondersteunde GIF providers en start een scene vanuit een resultaat.",
+        edit = "Bewerk Dichtstbijzijnde Scene",
+        destroy = "Verwijder Dichtstbijzijnde Scene",
+        nearest_scene = "Dichtstbijzijnde scene:",
+        no_scene = "Geen bewerkbare scene in de buurt.",
+        unknown_owner = "Onbekende eigenaar",
+    }
+}
+
+if GetConvar('qb_locale', 'en') == 'nl' then
+    Lang = Locale:new({
+        phrases = Translations,
+        warnOnMissing = true,
+        fallbackLang = Lang,
+    })
+end

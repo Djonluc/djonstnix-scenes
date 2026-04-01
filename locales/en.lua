@@ -1,0 +1,112 @@
+local Translations = {
+    notify = {
+        scene_visibility = "Scenes are now ",
+        scene_visibility_visible = "visible.",
+        scene_visibility_hidden = "hidden.",
+        not_placed = "Scene placement was cancelled.",
+        failed = "Failed to create the scene.",
+        failed_update = "Failed to update the scene.",
+        failed_destroy = "Failed to destroy the scene.",
+        failed_destory = "Failed to destroy the scene.",
+        succes_destroy = "Scene destroyed.",
+        scene_created = "Scene created.",
+        scene_updated = "Scene updated.",
+        scene_nearby = "No scene nearby.",
+        scene_missing = "That scene no longer exists.",
+        scene_content_required = "Add text or an image before placing the scene.",
+        scene_no_permission = "Only the owner or an admin can edit or delete this scene.",
+        scene_invalid_coords = "The scene position is invalid.",
+        scene_banned = "You are banned from creating or editing scenes.",
+        image_preparing = "Preparing image...",
+        preview_failed = "Image preview failed to load. Try another link or use a local file in ui/images.",
+        preview_loaded = "Image preview loaded.",
+        preview_cancelled = "Scene creation cancelled.",
+        preview_usage = "Use /scenepreview [image URL or local path]",
+        image_validation_failed = "Image validation failed.",
+        image_invalid_url = "That image URL is invalid.",
+        image_https_required = "Use an https image URL.",
+        image_not_allowed_host = "That image host is not allowed on this server.",
+        image_invalid_extension = "Use a direct image file ending in .png, .jpg, .jpeg, .webp, or .gif.",
+        image_remote_unreachable = "The server could not verify that image URL.",
+        image_remote_too_large = "That image is too large for scene uploads.",
+        image_local_disabled = "Local image files are disabled on this server.",
+        image_local_path_invalid = "Local image paths must start with ui/images/.",
+        image_local_missing = "That local image file was not found in ui/images/.",
+        image_upload_not_configured = "Scene uploads are not configured yet. Add your FiveManage API key first.",
+        image_upload_failed = "The server failed to upload that image to FiveManage.",
+        browser_not_configured = "No media browser providers are configured yet. Add a provider API key first.",
+        browser_provider_unavailable = "That media provider is not available on this server.",
+        browser_search_failed = "The media browser search failed. Try again in a moment.",
+    },
+
+    textUI = {
+        preview = "Image preview: E to continue, Backspace to cancel",
+        place_preview = "Placement preview: E to place | Backspace to cancel | Mouse wheel to resize image | Shift + mouse wheel to resize text",
+    },
+
+    chatMessages = {
+        banned = "Player is banned from using scenes."
+    },
+
+    commands = {
+        ban_description = "Ban a player from using scenes",
+        player_id = "Player ID",
+    },
+
+    createScene = {
+        new_scene = "Create New Scene",
+        edit_scene = "Edit Scene",
+        input_label = "Text",
+        input_description = "Optional scene text.",
+        color_label = "Text Color",
+        color_description = "The color used for scene text.",
+        font_label = "Font",
+        font_description = "Choose a GTA font that stays readable in-world.",
+        effect_label = "Text Effect",
+        effect_description = "Apply clean, outline, shadow, neon, ghost, premium, or warning styling.",
+        animation_label = "Text Animation",
+        animation_description = "Add motion like pulse, float, flicker, glitch, or breathe.",
+        text_size_label = "Text Size",
+        text_size_description = "Controls how large the text appears in-game.",
+        image_label = "Image Path or URL",
+        image_description = "Paste a direct image URL. The server mirrors it to FiveManage and stores the hosted result.",
+        image_size_label = "Image Size",
+        image_size_description = "Controls the image size before and after placement.",
+        timer_label = "Timer (Minutes)",
+        timer_description = "Set how long the scene should stay up. Use 0 to keep it permanently.",
+        slider_label = "Visibility Distance",
+        slider_description = "How far away the scene can be seen.",
+        reposition_label = "Reposition Scene",
+        reposition_description = "Enable this to place the edited scene at a new location.",
+    },
+
+    browser = {
+        title = "Scene Media Browser",
+        subtitle = "Search hosted GIFs and bring them straight into scene creation.",
+        search_placeholder = "Search for a GIF or image idea...",
+        search_button = "Search",
+        empty = "Search to load media results.",
+        searching = "Searching...",
+        no_results = "No results found for that search.",
+        close = "Close",
+    },
+
+    optionsScene = {
+        toggle = "Toggle Scenes",
+        toggle_description = "Hide or show all scenes for yourself.",
+        create = "Create Scene",
+        create_description = "Build a new DjonStNix scene with text or an image.",
+        browse = "Browse Media",
+        browse_description = "Search supported GIF providers and start a scene from a result.",
+        edit = "Edit Nearest Scene",
+        destroy = "Destroy Nearest Scene",
+        nearest_scene = "Nearest scene:",
+        no_scene = "No editable scene nearby.",
+        unknown_owner = "Unknown owner",
+    }
+}
+
+Lang = Lang or Locale:new({
+    phrases = Translations,
+    warnOnMissing = true
+})

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DjonStNix Scene UI</title>
+    <link rel="stylesheet" href="preview.css">
+</head>
+<body>
+    <div id="preview-root" class="hidden" aria-hidden="true">
+        <main class="preview-stage">
+            <img id="preview-image" alt="Scene preview" referrerpolicy="no-referrer">
+        </main>
+
+        <div class="preview-dock">
+            <div class="preview-badge">
+                <svg width="220" height="72" viewBox="0 0 240 80" fill="none" class="dsn-logo-animated" aria-hidden="true">
+                    <path d="M10 10H230V70H10V10Z" stroke="var(--accent)" stroke-width="1" stroke-dasharray="700" stroke-dashoffset="700" class="logo-border" />
+                    <path d="M5 15V5H15" stroke="var(--accent)" stroke-width="2" class="pulse" />
+                    <path d="M225 5H235V15" stroke="var(--accent)" stroke-width="2" class="pulse" />
+                    <path d="M235 65V75H225" stroke="var(--accent)" stroke-width="2" class="pulse" />
+                    <path d="M15 75H5V65" stroke="var(--accent)" stroke-width="2" class="pulse" />
+                    <text x="50%" y="38" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="26" font-weight="900" letter-spacing="2" font-family="Inter, 'Segoe UI', sans-serif">
+                        Djon<tspan fill="var(--accent)" class="pulse">St</tspan>Nix
+                    </text>
+                    <text x="50%" y="58" text-anchor="middle" fill="var(--accent)" font-size="8" font-family="'JetBrains Mono', Consolas, monospace" style="opacity:0.6; letter-spacing: 1px;">
+                        THE FIVEM OPERATING SYSTEM
+                    </text>
+                </svg>
+            </div>
+
+            <div class="preview-hint">Press E to continue | Backspace to cancel</div>
+        </div>
+    </div>
+
+    <div id="browser-root" class="hidden" aria-hidden="true">
+        <div class="browser-shell">
+            <header class="browser-header">
+                <div class="browser-brand">
+                    <span class="browser-kicker">DjonStNix Scenes</span>
+                    <strong id="browser-title">Scene Media Browser</strong>
+                    <span id="browser-subtitle">Search hosted GIFs and bring them straight into scene creation.</span>
+                </div>
+                <button id="browser-close" class="browser-close" type="button" aria-label="Close browser">Close</button>
+            </header>
+
+            <div id="browser-tabs" class="browser-tabs"></div>
+
+            <form id="browser-search-form" class="browser-search">
+                <input id="browser-query" class="browser-input" type="text" maxlength="60" autocomplete="off" placeholder="Search for a GIF or image idea...">
+                <button id="browser-submit" class="browser-submit" type="submit">Search</button>
+            </form>
+
+            <div id="browser-status" class="browser-status">Search to load media results.</div>
+            <div id="browser-grid" class="browser-grid"></div>
+        </div>
+    </div>
+
+    <script src="preview.js"></script>
+</body>
+</html>
