@@ -10,6 +10,7 @@
     <div id="preview-root" class="hidden" aria-hidden="true">
         <main class="preview-stage">
             <img id="preview-image" alt="Scene preview" referrerpolicy="no-referrer">
+            <video id="preview-video" muted loop playsinline preload="auto" class="hidden" aria-hidden="true"></video>
             <div id="preview-dimensions" class="preview-dimensions"></div>
         </main>
 
@@ -40,7 +41,7 @@
                 <div class="browser-brand">
                     <span class="browser-kicker">DjonStNix Scenes</span>
                     <strong id="browser-title">Scene Media Browser</strong>
-                    <span id="browser-subtitle">Search hosted GIFs and bring them straight into scene creation.</span>
+                    <span id="browser-subtitle">Search hosted media and bring it straight into scene creation.</span>
                 </div>
                 <button id="browser-close" class="browser-close" type="button" aria-label="Close browser">Close</button>
             </header>
@@ -48,7 +49,7 @@
             <div id="browser-tabs" class="browser-tabs"></div>
 
             <form id="browser-search-form" class="browser-search">
-                <input id="browser-query" class="browser-input" type="text" maxlength="60" autocomplete="off" placeholder="Search for a GIF or image idea...">
+                <input id="browser-query" class="browser-input" type="text" maxlength="60" autocomplete="off" placeholder="Search for media or an image idea...">
                 <button id="browser-submit" class="browser-submit" type="submit">Search</button>
             </form>
 

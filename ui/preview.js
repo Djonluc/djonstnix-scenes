@@ -1,5 +1,6 @@
 const previewRoot = document.getElementById('preview-root');
 const previewImage = document.getElementById('preview-image');
+const previewVideo = document.getElementById('preview-video');
 const browserRoot = document.getElementById('browser-root');
 const browserTitle = document.getElementById('browser-title');
 const browserSubtitle = document.getElementById('browser-subtitle');
@@ -16,8 +17,8 @@ let activeBrowserProvider = '';
 let browserProviders = [];
 let browserStrings = {
     title: 'Scene Media Browser',
-    subtitle: 'Search hosted GIFs and bring them straight into scene creation.',
-    search_placeholder: 'Search for a GIF or image idea...',
+    subtitle: 'Search hosted media and bring it straight into scene creation.',
+    search_placeholder: 'Search for media or an image idea...',
     search_button: 'Search',
     empty: 'Search to load media results.',
     searching: 'Searching...',
@@ -28,6 +29,19 @@ let browserStrings = {
 previewImage.referrerPolicy = 'no-referrer';
 previewImage.decoding = 'async';
 previewImage.fetchPriority = 'high';
+previewVideo.muted = true;
+previewVideo.loop = true;
+previewVideo.playsInline = true;
+previewVideo.autoplay = true;
+previewVideo.preload = 'auto';
+
+function isVideoSource(value, explicitKind) {
+    if ((explicitKind || '').toLowerCase() === 'video') {
+        return true;
+    }
+
+    return /\.(mp4|webm)(?:$|[?#])/i.test(value || '');
+}
 
 function postJson(callbackName, payload) {
     return fetch(`https://${GetParentResourceName()}/${callbackName}`, {
@@ -48,6 +62,13 @@ function hidePreview() {
     previewImage.onload = null;
     previewImage.onerror = null;
     previewImage.removeAttribute('src');
+    previewImage.classList.remove('hidden');
+    previewVideo.onloadedmetadata = null;
+    previewVideo.onerror = null;
+    previewVideo.pause();
+    previewVideo.removeAttribute('src');
+    previewVideo.load();
+    previewVideo.classList.add('hidden');
     
     const dimensionsEl = document.getElementById('preview-dimensions');
     if (dimensionsEl) {
@@ -101,11 +122,26 @@ function renderBrowserResults(results) {
         button.type = 'button';
         button.className = 'browser-card';
 
-        const image = document.createElement('img');
-        image.alt = result.title || result.provider || 'Media result';
-        image.loading = 'lazy';
-        image.referrerPolicy = 'no-referrer';
-        image.src = result.previewUrl || result.url;
+        const previewKind = result.previewKind || result.mediaKind || 'image';
+        let mediaEl;
+
+        if (isVideoSource(result.previewUrl || result.url, previewKind)) {
+            const video = document.createElement('video');
+            video.muted = true;
+            video.loop = true;
+            video.autoplay = true;
+            video.playsInline = true;
+            video.preload = 'metadata';
+            video.src = result.previewUrl || result.url;
+            mediaEl = video;
+        } else {
+            const image = document.createElement('img');
+            image.alt = result.title || result.provider || 'Media result';
+            image.loading = 'lazy';
+            image.referrerPolicy = 'no-referrer';
+            image.src = result.previewUrl || result.url;
+            mediaEl = image;
+        }
 
         const title = document.createElement('strong');
         title.textContent = result.title || 'Untitled result';
@@ -113,7 +149,7 @@ function renderBrowserResults(results) {
         const meta = document.createElement('span');
         meta.textContent = `${result.provider || 'media'}${result.width > 0 && result.height > 0 ? ` | ${result.width}x${result.height}` : ''}`;
 
-        button.appendChild(image);
+        button.appendChild(mediaEl);
         button.appendChild(title);
         button.appendChild(meta);
 
@@ -247,6 +283,61 @@ window.addEventListener('message', (event) => {
     previewImage.onload = null;
     previewImage.onerror = null;
     previewImage.removeAttribute('src');
+    previewImage.classList.remove('hidden');
+    previewVideo.onloadedmetadata = null;
+    previewVideo.onerror = null;
+    previewVideo.pause();
+    previewVideo.removeAttribute('src');
+    previewVideo.load();
+    previewVideo.classList.add('hidden');
+
+    const useVideo = isVideoSource(data.src, data.kind);
+
+    if (useVideo) {
+        previewImage.classList.add('hidden');
+        previewVideo.classList.remove('hidden');
+
+        previewVideo.onloadedmetadata = () => {
+            if (requestId !== activePreviewRequestId) {
+                return;
+            }
+
+            const width = previewVideo.videoWidth || 0;
+            const height = previewVideo.videoHeight || 0;
+
+            const dimensionsEl = document.getElementById('preview-dimensions');
+            if (dimensionsEl) {
+                dimensionsEl.textContent = `${width} x ${height}`;
+                dimensionsEl.classList.remove('hidden');
+            }
+
+            previewVideo.play().catch(() => {});
+
+            postJson('scenePreviewStatus', {
+                source: data.src,
+                requestId,
+                loaded: true,
+                width,
+                height,
+            });
+        };
+
+        previewVideo.onerror = () => {
+            if (requestId !== activePreviewRequestId) {
+                return;
+            }
+
+            postJson('scenePreviewStatus', {
+                source: data.src,
+                requestId,
+                loaded: false,
+            });
+        };
+
+        previewVideo.src = data.src;
+        previewVideo.load();
+        return;
+    }
 
     previewImage.onload = () => {
         if (requestId !== activePreviewRequestId) {

@@ -3,6 +3,8 @@ local BanIdentifier, IsBanned, SaveScenes, GetSavedScenes = import[1], import[2]
 
 local scenes = {}
 local preparedRemoteImages = {}
+local persistQueued = false
+local persistDirty = false
 math.randomseed(os.time())
 
 local function Trim(value)
@@ -141,7 +143,65 @@ local function GetPathExtension(path)
     return cleanPath:match('%.([%w]+)$')
 end
 
-local function GetExtensionFromContentType(contentType)
+local GetExtensionFromContentType
+
+local function NormalizeContentType(contentType)
+    contentType = Trim(contentType)
+    if contentType == '' then
+        return nil
+    end
+
+    return (contentType:match('^[^;]+') or contentType):lower()
+end
+
+local function GetMediaKindFromExtension(extension)
+    extension = Trim(extension):lower()
+
+    if extension == 'mp4' or extension == 'webm' then
+        return 'video'
+    end
+
+    return 'image'
+end
+
+local function GetMediaKindFromContentType(contentType)
+    contentType = NormalizeContentType(contentType)
+    if not contentType then
+        return 'image'
+    end
+
+    if contentType == 'video/mp4' or contentType == 'video/webm' then
+        return 'video'
+    end
+
+    return 'image'
+end
+
+local function BuildMediaMetadata(path, contentTypeOrExtension)
+    local normalizedContentType = NormalizeContentType(contentTypeOrExtension)
+    local normalizedExtension = nil
+
+    if normalizedContentType and normalizedContentType:find('/', 1, true) == nil then
+        normalizedExtension = normalizedContentType
+        normalizedContentType = nil
+    end
+
+    local extension = normalizedContentType and GetExtensionFromContentType(normalizedContentType) or Trim(normalizedExtension or GetPathExtension(path) or ''):lower()
+    local mediaKind = normalizedContentType and GetMediaKindFromContentType(normalizedContentType) or GetMediaKindFromExtension(extension)
+
+    if extension == '' then
+        extension = mediaKind == 'video' and 'mp4' or 'png'
+    end
+
+    return {
+        mediaKind = mediaKind,
+        mediaExtension = extension,
+        mediaAnimated = mediaKind == 'video' or extension == 'gif',
+    }
+end
+
+GetExtensionFromContentType = function(contentType)
+    contentType = NormalizeContentType(contentType)
     if not contentType then
         return 'png'
     end
@@ -156,9 +216,11 @@ local function GetExtensionFromContentType(contentType)
         ['image/svg+xml'] = 'svg',
         ['image/x-icon'] = 'ico',
         ['image/heic'] = 'heic',
+        ['video/mp4'] = 'mp4',
+        ['video/webm'] = 'webm',
     }
 
-    return extensions[contentType:lower()] or 'png'
+    return extensions[contentType] or 'png'
 end
 
 local function IsAllowedExtension(path)
@@ -212,8 +274,30 @@ local function GetHeader(headers, targetName)
     return nil
 end
 
-local function IsImageContentType(contentType)
-    return contentType and contentType:lower():find('image/', 1, true) ~= nil
+local function IsSupportedMediaContentType(contentType)
+    contentType = NormalizeContentType(contentType)
+    if not contentType then
+        return false
+    end
+
+    if contentType:find('image/', 1, true) ~= nil then
+        return true
+    end
+
+    return contentType == 'video/mp4' or contentType == 'video/webm'
+end
+
+local function IsAnimatedMediaMetadata(mediaMeta)
+    return type(mediaMeta) == 'table' and mediaMeta.mediaAnimated == true
+end
+
+local function ParseContentLength(headers)
+    local contentLength = tonumber(GetHeader(headers, 'content-length'))
+    if contentLength and contentLength > 0 then
+        return contentLength
+    end
+
+    return nil
 end
 
 local function PerformHttpRequestAwait(url, method, body, headers)
@@ -251,13 +335,16 @@ local function GetEnabledMediaProviders()
     return providers
 end
 
-local function BuildMediaResult(provider, id, title, mediaUrl, previewUrl, width, height)
+local function BuildMediaResult(provider, id, title, mediaUrl, previewUrl, width, height, mediaMeta, previewMeta)
     mediaUrl = Trim(mediaUrl)
     previewUrl = Trim(previewUrl)
 
     if mediaUrl == '' then
         return nil
     end
+
+    mediaMeta = mediaMeta or BuildMediaMetadata(mediaUrl)
+    previewMeta = previewMeta or BuildMediaMetadata(previewUrl ~= '' and previewUrl or mediaUrl)
 
     return {
         provider = provider,
@@ -267,7 +354,22 @@ local function BuildMediaResult(provider, id, title, mediaUrl, previewUrl, width
         previewUrl = previewUrl ~= '' and previewUrl or mediaUrl,
         width = tonumber(width) or 0,
         height = tonumber(height) or 0,
+        mediaKind = mediaMeta.mediaKind,
+        mediaExtension = mediaMeta.mediaExtension,
+        mediaAnimated = mediaMeta.mediaAnimated,
+        previewKind = previewMeta.mediaKind,
     }
+end
+
+local function SelectMediaFormat(mediaFormats, preferredKeys)
+    for _, key in ipairs(preferredKeys or {}) do
+        local candidate = mediaFormats[key]
+        if type(candidate) == 'table' and Trim(candidate.url) ~= '' then
+            return key, candidate
+        end
+    end
+
+    return nil, nil
 end
 
 local function SearchTenorMedia(query)
@@ -309,8 +411,29 @@ local function SearchTenorMedia(query)
     local results = {}
     for _, item in ipairs(decoded.results) do
         local mediaFormats = type(item.media_formats) == 'table' and item.media_formats or {}
-        local primary = mediaFormats.gif or mediaFormats.mediumgif or mediaFormats.tinygif or mediaFormats.nanogif or mediaFormats.webp or mediaFormats.gifpreview
-        local preview = mediaFormats.tinygif or mediaFormats.nanogif or mediaFormats.gifpreview or primary
+        local primaryKey, primary = SelectMediaFormat(mediaFormats, {
+            'mp4',
+            'tinymp4',
+            'nanomp4',
+            'webm',
+            'tinywebm',
+            'nanowebm',
+            'gif',
+            'mediumgif',
+            'tinygif',
+            'nanogif',
+            'webp',
+            'gifpreview',
+        })
+        local previewKey, preview = SelectMediaFormat(mediaFormats, {
+            'gifpreview',
+            'tinygif',
+            'nanogif',
+            'mediumgif',
+            'gif',
+            'webp',
+            primaryKey,
+        })
 
         local dims = {}
         if type(primary) == 'table' and type(primary.dims) == 'table' then
@@ -326,7 +449,9 @@ local function SearchTenorMedia(query)
             type(primary) == 'table' and primary.url or '',
             type(preview) == 'table' and preview.url or '',
             dims[1],
-            dims[2]
+            dims[2],
+            BuildMediaMetadata(type(primary) == 'table' and primary.url or '', primaryKey),
+            BuildMediaMetadata(type(preview) == 'table' and preview.url or '', previewKey)
         )
 
         if result then
@@ -391,16 +516,58 @@ local function IsSceneExpired(scene)
 end
 
 local function PruneExpiredScenes()
-    local removed = false
+    local removedIds = {}
 
-    for index = #scenes, 1, -1 do
-        if IsSceneExpired(scenes[index]) then
-            table.remove(scenes, index)
-            removed = true
+    for uid, scene in pairs(scenes) do
+        if IsSceneExpired(scene) then
+            scenes[uid] = nil
+            removedIds[#removedIds + 1] = uid
         end
     end
 
-    return removed
+    return removedIds
+end
+
+local function QueueScenePersist()
+    persistDirty = true
+    if persistQueued then
+        return
+    end
+
+    persistQueued = true
+    CreateThread(function()
+        Wait(750)
+        persistQueued = false
+
+        if not persistDirty then
+            return
+        end
+
+        persistDirty = false
+        SaveScenes(scenes)
+    end)
+end
+
+local function PersistScenesNow()
+    persistDirty = false
+    persistQueued = false
+    SaveScenes(scenes)
+end
+
+local function BroadcastSceneSet(target)
+    TriggerClientEvent('qb-scenes:client:setScenes', target or -1, scenes)
+end
+
+local function BroadcastSceneUpsert(scene, target)
+    TriggerClientEvent('qb-scenes:client:upsertScene', target or -1, scene)
+end
+
+local function BroadcastSceneRemove(sceneIds, target)
+    if not sceneIds or #sceneIds == 0 then
+        return
+    end
+
+    TriggerClientEvent('qb-scenes:client:removeScenes', target or -1, sceneIds)
 end
 
 local function HasAdminPermission(source)
@@ -436,17 +603,40 @@ end
 local function ValidateStoredRemoteImage(url)
     local config = GetImageConfig()
     if not config.validateStoredRemoteImages then
-        return true
+        return true, BuildMediaMetadata(url), nil
+    end
+
+    local headResponse = PerformHttpRequestAwait(url, 'HEAD', '', {
+        ['Accept'] = 'image/*,video/mp4,video/webm,*/*;q=0.8',
+        ['User-Agent'] = 'djonstnix-scenes/1.0',
+    })
+
+    local headContentType = GetHeader(headResponse.headers, 'content-type')
+    local headOk = headResponse.statusCode and headResponse.statusCode >= 200 and headResponse.statusCode < 400 and IsSupportedMediaContentType(headContentType)
+    if headOk then
+        return true, BuildMediaMetadata(url, headContentType), ParseContentLength(headResponse.headers)
     end
 
     local response = PerformHttpRequestAwait(url, 'GET', '', {
-        ['Accept'] = 'image/*,*/*;q=0.8',
+        ['Accept'] = 'image/*,video/mp4,video/webm,*/*;q=0.8',
         ['User-Agent'] = 'djonstnix-scenes/1.0',
         ['Range'] = 'bytes=0-1024',
     })
 
     local contentType = GetHeader(response.headers, 'content-type')
-    return response.statusCode and response.statusCode >= 200 and response.statusCode < 400 and IsImageContentType(contentType)
+    local ok = response.statusCode and response.statusCode >= 200 and response.statusCode < 400 and IsSupportedMediaContentType(contentType)
+    if ok then
+        return true, BuildMediaMetadata(url, contentType), ParseContentLength(response.headers)
+    end
+
+    response = PerformHttpRequestAwait(url, 'GET', '', {
+        ['Accept'] = 'image/*,video/mp4,video/webm,*/*;q=0.8',
+        ['User-Agent'] = 'djonstnix-scenes/1.0',
+    })
+
+    contentType = GetHeader(response.headers, 'content-type')
+    ok = response.statusCode and response.statusCode >= 200 and response.statusCode < 400 and IsSupportedMediaContentType(contentType)
+    return ok, ok and BuildMediaMetadata(url, contentType) or nil, ok and ParseContentLength(response.headers) or nil
 end
 
 local function UploadImageDataToFivemanage(dataUri, filename)
@@ -485,7 +675,7 @@ end
 local function RehostRemoteImage(imageUrl)
     local config = GetImageConfig()
     local response = PerformHttpRequestAwait(imageUrl, 'GET', '', {
-        ['Accept'] = 'image/*,*/*;q=0.8',
+        ['Accept'] = 'image/*,video/mp4,video/webm,*/*;q=0.8',
         ['User-Agent'] = 'djonstnix-scenes/1.0',
     })
 
@@ -494,7 +684,7 @@ local function RehostRemoteImage(imageUrl)
     end
 
     local contentType = GetHeader(response.headers, 'content-type')
-    if not IsImageContentType(contentType) then
+    if not IsSupportedMediaContentType(contentType) then
         return nil, 'image_remote_unreachable'
     end
 
@@ -513,7 +703,12 @@ local function RehostRemoteImage(imageUrl)
 
     local filename = BuildUploadFilename(GetExtensionFromContentType(contentType))
     local dataUri = ('data:%s;base64,%s'):format(contentType, Base64Encode(body))
-    return UploadImageDataToFivemanage(dataUri, filename)
+    local uploadedUrl, reason = UploadImageDataToFivemanage(dataUri, filename)
+    if not uploadedUrl then
+        return nil, reason
+    end
+
+    return uploadedUrl, nil, BuildMediaMetadata(uploadedUrl, contentType)
 end
 
 local function NormalizeHostedUrl(imageUrl, skipValidation)
@@ -522,11 +717,16 @@ local function NormalizeHostedUrl(imageUrl, skipValidation)
         return nil, 'image_not_allowed_host'
     end
 
-    if not skipValidation and not ValidateStoredRemoteImage(imageUrl) then
-        return nil, 'image_remote_unreachable'
+    if not skipValidation then
+        local ok, mediaMeta = ValidateStoredRemoteImage(imageUrl)
+        if not ok then
+            return nil, 'image_remote_unreachable'
+        end
+
+        return imageUrl, nil, mediaMeta
     end
 
-    return imageUrl, nil
+    return imageUrl, nil, BuildMediaMetadata(imageUrl)
 end
 
 local function PrepareRemoteImage(imagePath)
@@ -541,12 +741,22 @@ local function PrepareRemoteImage(imagePath)
         return nil, 'image_invalid_url'
     end
 
-    if config.requireImageExtension and not IsAllowedExtension(imagePath) then
-        return nil, 'image_invalid_extension'
-    end
-
     if IsAllowedHost(host) then
         return NormalizeHostedUrl(imagePath)
+    end
+
+    local remoteOk, remoteMediaMeta, remoteContentLength = ValidateStoredRemoteImage(imagePath)
+    if not remoteOk then
+        return nil, 'image_remote_unreachable'
+    end
+
+    local maxMirrorFileSize = math.min(tonumber(config.maxRemoteFileSize) or (8 * 1024 * 1024), 16 * 1024 * 1024)
+    local shouldUseDirectRemote = config.allowDirectRemoteUrls
+        or IsAnimatedMediaMetadata(remoteMediaMeta)
+        or (remoteContentLength and remoteContentLength > maxMirrorFileSize)
+
+    if shouldUseDirectRemote then
+        return imagePath, nil, remoteMediaMeta
     end
 
     if config.mirrorExternalUrlsToFivemanage then
@@ -555,7 +765,7 @@ local function PrepareRemoteImage(imagePath)
             return NormalizeHostedUrl(cachedUrl, true)
         end
 
-        local uploadedUrl, uploadReason = RehostRemoteImage(imagePath)
+        local uploadedUrl, uploadReason, mediaMeta = RehostRemoteImage(imagePath)
         if not uploadedUrl then
             return nil, uploadReason
         end
@@ -566,15 +776,11 @@ local function PrepareRemoteImage(imagePath)
         end
 
         preparedRemoteImages[imagePath] = normalizedUrl
-        return normalizedUrl, nil
+        return normalizedUrl, nil, mediaMeta or BuildMediaMetadata(normalizedUrl)
     end
 
     if config.allowDirectRemoteUrls then
-        if not ValidateStoredRemoteImage(imagePath) then
-            return nil, 'image_remote_unreachable'
-        end
-
-        return imagePath, nil
+        return imagePath, nil, remoteMediaMeta or BuildMediaMetadata(imagePath)
     end
 
     return nil, 'image_upload_not_configured'
@@ -588,12 +794,15 @@ local function ValidateImagePath(imagePath)
         return {
             ok = true,
             imagePath = '',
-            sourceType = 'none'
+            sourceType = 'none',
+            mediaKind = 'image',
+            mediaExtension = '',
+            mediaAnimated = false,
         }
     end
 
     if imagePath:find('^https?://') then
-        local preparedUrl, reason = PrepareRemoteImage(imagePath)
+        local preparedUrl, reason, mediaMeta = PrepareRemoteImage(imagePath)
         if not preparedUrl then
             return {
                 ok = false,
@@ -604,7 +813,10 @@ local function ValidateImagePath(imagePath)
         return {
             ok = true,
             imagePath = preparedUrl,
-            sourceType = 'remote'
+            sourceType = 'remote',
+            mediaKind = mediaMeta and mediaMeta.mediaKind or GetMediaKindFromExtension(GetPathExtension(preparedUrl) or ''),
+            mediaExtension = mediaMeta and mediaMeta.mediaExtension or Trim(GetPathExtension(preparedUrl) or ''):lower(),
+            mediaAnimated = mediaMeta and mediaMeta.mediaAnimated == true or false,
         }
     end
 
@@ -640,7 +852,10 @@ local function ValidateImagePath(imagePath)
     return {
         ok = true,
         imagePath = imagePath,
-        sourceType = 'local'
+        sourceType = 'local',
+        mediaKind = GetMediaKindFromExtension(GetPathExtension(imagePath) or ''),
+        mediaExtension = Trim(GetPathExtension(imagePath) or ''):lower(),
+        mediaAnimated = Trim(GetPathExtension(imagePath) or ''):lower() == 'gif',
     }
 end
 
@@ -720,17 +935,32 @@ local function BuildScenePayload(source, data, existingScene)
         textAnimation = 'none'
     end
 
+    local uid = existingScene.id
+    if not uid then
+        uid = ('scn_%d%d'):format(os.time(), math.random(1000, 9999))
+    end
+
     return {
+        id = uid, -- Stable UID
         text = text,
         coords = coords,
         color = NormalizeColor(data.color or existingScene.color),
         distance = Clamp(data.distance or existingScene.distance or GetDefaultDistance(), 1.0, 20.0),
         imagePath = imageValidation.imagePath,
+        mediaKind = imageValidation.imagePath ~= '' and (imageValidation.mediaKind or existingScene.mediaKind or 'image') or 'image',
+        mediaExtension = imageValidation.imagePath ~= '' and (imageValidation.mediaExtension or existingScene.mediaExtension or '') or '',
+        mediaAnimated = imageValidation.imagePath ~= '' and (imageValidation.mediaAnimated == true) or false,
         imageScale = Clamp(data.imageScale or existingScene.imageScale or GetDefaultImageScale(), 0.1, 20.0),
         imageWidth = tonumber(data.imageWidth or existingScene.imageWidth) or 1024,
         imageHeight = tonumber(data.imageHeight or existingScene.imageHeight) or 1024,
         imageAspectRatio = Clamp(data.imageAspectRatio or existingScene.imageAspectRatio or 1.0, 0.2, 5.0),
         textScale = Clamp(data.textScale or existingScene.textScale or GetDefaultTextScale(), 0.2, 1.25),
+        rotation = {
+            x = tonumber(data.rotation and data.rotation.x or existingScene.rotation and existingScene.rotation.x) or 0.0,
+            y = tonumber(data.rotation and data.rotation.y or existingScene.rotation and existingScene.rotation.y) or 0.0,
+            z = tonumber(data.rotation and data.rotation.z or existingScene.rotation and existingScene.rotation.z) or 0.0,
+        },
+        faceCamera = (data.faceCamera ~= nil and data.faceCamera) or (data.faceCamera == nil and existingScene.faceCamera == true),
         durationMinutes = durationMinutes,
         expiresAt = expiresAt,
         font = font,
@@ -755,10 +985,19 @@ local function NormalizeLoadedScene(scene)
         payload.color = NormalizeColor(payload.color)
         payload.distance = Clamp(payload.distance or GetDefaultDistance(), 1.0, 20.0)
         payload.imageScale = Clamp(payload.imageScale or GetDefaultImageScale(), 0.1, 20.0)
+        payload.mediaKind = Trim(payload.mediaKind) ~= '' and Trim(payload.mediaKind) or BuildMediaMetadata(payload.imagePath).mediaKind
+        payload.mediaExtension = Trim(payload.mediaExtension) ~= '' and Trim(payload.mediaExtension):lower() or BuildMediaMetadata(payload.imagePath).mediaExtension
+        payload.mediaAnimated = payload.mediaAnimated == true or BuildMediaMetadata(payload.imagePath).mediaAnimated
         payload.imageWidth = tonumber(payload.imageWidth) or 1024
         payload.imageHeight = tonumber(payload.imageHeight) or 1024
         payload.imageAspectRatio = Clamp(payload.imageAspectRatio or 1.0, 0.2, 5.0)
         payload.textScale = Clamp(payload.textScale or GetDefaultTextScale(), 0.2, 1.25)
+        payload.rotation = type(payload.rotation) == 'table' and {
+            x = tonumber(payload.rotation.x or payload.rotation[1]) or 0.0,
+            y = tonumber(payload.rotation.y or payload.rotation[2]) or 0.0,
+            z = tonumber(payload.rotation.z or payload.rotation[3]) or 0.0,
+        } or { x = 0.0, y = 0.0, z = 0.0 }
+        payload.faceCamera = payload.faceCamera ~= false
         payload.durationMinutes = NormalizeDurationMinutes(payload.durationMinutes)
         payload.expiresAt = tonumber(payload.expiresAt) or nil
         payload.font = Trim(payload.font)
@@ -799,11 +1038,6 @@ local function NormalizeLoadedScene(scene)
     return payload
 end
 
-local function RefreshScenes()
-    PruneExpiredScenes()
-    TriggerClientEvent('qb-scenes:client:refreshScenes', -1, scenes)
-end
-
 QBCore.Commands.Add('sceneban', Lang:t('commands.ban_description'), {
     name = 'player',
     description = Lang:t('commands.player_id')
@@ -825,8 +1059,45 @@ QBCore.Commands.Add('sceneban', Lang:t('commands.ban_description'), {
     })
 end, 'admin')
 
+QBCore.Commands.Add('cleanscenes', Lang:t('commands.cleanup_description'), {
+    { name = 'radius', help = Lang:t('commands.cleanup_radius') }
+}, false, function(source, args)
+    local radius = tonumber(args[1]) or 5.0
+    local coords = GetEntityCoords(GetPlayerPed(source))
+    local removedCount = 0
+    local removedIds = {}
+
+    for uid, scene in pairs(scenes) do
+        local dist = #(coords - vec3(scene.coords.x, scene.coords.y, scene.coords.z))
+        if dist <= radius then
+            scenes[uid] = nil
+            removedCount = removedCount + 1
+            removedIds[#removedIds + 1] = uid
+        end
+    end
+
+    if removedCount > 0 then
+        QueueScenePersist()
+        BroadcastSceneRemove(removedIds)
+        TriggerClientEvent('QBCore:Notify', source, Lang:t('notify.cleaned_area'):format(removedCount), 'success')
+        TriggerEvent('qb-log:server:CreateLog', 'scenes', 'Mass Cleanup', 'red',
+            ('**%s** (%s) cleared **%d** scenes in a %.1fm radius'):format(GetPlayerName(source), source, removedCount, radius))
+    else
+        TriggerClientEvent('QBCore:Notify', source, Lang:t('notify.scene_nearby'), 'error')
+    end
+end, 'admin')
+
+lib.callback.register('qb-scenes:server:hasAdminPermission', function(source)
+    return HasAdminPermission(source)
+end)
+
 lib.callback.register('qb-scenes:server:getScenes', function()
-    PruneExpiredScenes()
+    local removedIds = PruneExpiredScenes()
+    if #removedIds > 0 then
+        QueueScenePersist()
+        BroadcastSceneRemove(removedIds)
+    end
+
     return scenes
 end)
 
@@ -876,21 +1147,21 @@ lib.callback.register('qb-scenes:server:newScene', function(source, data)
     end
 
     local scene, reason = BuildScenePayload(source, data)
-    if not scene then
+    if not scene or not scene.id then
         return { ok = false, reason = reason or 'failed' }
     end
 
-    scenes[#scenes + 1] = scene
-    RefreshScenes()
+    scenes[scene.id] = scene
+    QueueScenePersist()
+    BroadcastSceneUpsert(scene)
 
     TriggerEvent('qb-log:server:CreateLog', 'scenes', 'New Scene', 'green',
-        ('**%s** (%s) created a new scene: **%s**'):format(GetPlayerName(source), source, BuildSceneLogLabel(scene)))
+        ('**%s** (%s) created a new scene (ID: %s): **%s**'):format(GetPlayerName(source), source, scene.id, BuildSceneLogLabel(scene)))
 
     return { ok = true }
 end)
 
 lib.callback.register('qb-scenes:server:updateScene', function(source, id, data)
-    id = tonumber(id)
     local scene = scenes[id]
     if not scene then
         return { ok = false, reason = 'scene_missing' }
@@ -915,7 +1186,8 @@ lib.callback.register('qb-scenes:server:updateScene', function(source, id, data)
     end
 
     scenes[id] = updatedScene
-    RefreshScenes()
+    QueueScenePersist()
+    BroadcastSceneUpsert(updatedScene)
 
     TriggerEvent('qb-log:server:CreateLog', 'scenes', 'Updated Scene', 'blue',
         ('**%s** (%s) updated the scene: **%s**'):format(GetPlayerName(source), source, BuildSceneLogLabel(updatedScene)))
@@ -923,55 +1195,76 @@ lib.callback.register('qb-scenes:server:updateScene', function(source, id, data)
     return { ok = true }
 end)
 
-lib.callback.register('qb-scenes:server:destoryScene', function(source, id)
-    id = tonumber(id)
+lib.callback.register('qb-scenes:server:destroyScene', function(source, id)
     local scene = scenes[id]
     if not scene then
         return { ok = false, reason = 'scene_missing' }
-    end
-
-    local identifier = GetIdentifier(source, 'license')
-    if not identifier then
-        return { ok = false, reason = 'failed' }
-    end
-
-    if IsBanned(identifier) then
-        return { ok = false, reason = 'scene_banned' }
     end
 
     if not CanManageScene(source, scene) then
         return { ok = false, reason = 'scene_no_permission' }
     end
 
-    TriggerEvent('qb-log:server:CreateLog', 'scenes', 'Removed Scene', 'red',
-        ('**%s** (%s) removed the scene: **%s** owned by **%s**'):format(
-            GetPlayerName(source),
-            source,
-            BuildSceneLogLabel(scene),
-            scene.ownerName or 'Unknown'
-        )
-    )
+    scenes[id] = nil
+    QueueScenePersist()
+    BroadcastSceneRemove({ id })
 
-    table.remove(scenes, id)
-    RefreshScenes()
+    TriggerEvent('qb-log:server:CreateLog', 'scenes', 'Destroy Scene', 'orange',
+        ('**%s** (%s) destroyed the scene (ID: %s): **%s**'):format(GetPlayerName(source), source, id, BuildSceneLogLabel(scene)))
+
     return { ok = true }
 end)
 
+lib.callback.register('qb-scenes:server:clearArea', function(source, radius)
+    if not HasAdminPermission(source) then
+        return { ok = false, reason = 'scene_no_permission' }
+    end
+
+    radius = tonumber(radius) or 5.0
+    local coords = GetEntityCoords(GetPlayerPed(source))
+    local removedCount = 0
+    local removedIds = {}
+
+    for uid, scene in pairs(scenes) do
+        local dist = #(coords - vec3(scene.coords.x, scene.coords.y, scene.coords.z))
+        if dist <= radius then
+            scenes[uid] = nil
+            removedCount = removedCount + 1
+            removedIds[#removedIds + 1] = uid
+        end
+    end
+
+    if removedCount > 0 then
+        QueueScenePersist()
+        BroadcastSceneRemove(removedIds)
+        TriggerEvent('qb-log:server:CreateLog', 'scenes', 'Mass Cleanup', 'red',
+            ('**%s** (%s) cleared **%d** scenes in a %.1fm radius'):format(GetPlayerName(source), source, removedCount, radius))
+        return { ok = true, count = removedCount }
+    end
+
+    return { ok = false, reason = 'scene_nearby' }
+end)
+
 lib.callback.register('qb-scenes:server:updateSceneDimensions', function(source, id, width, height)
-    id = tonumber(id)
     local scene = scenes[id]
     if not scene then
         return false
     end
 
-    print(('^5[DjonStNix Scenes]^7 Migrating legacy dimensions for ID: %s (%dx%d)'):format(id, width, height))
-    scene.imageWidth = tonumber(width) or 1024
-    scene.imageHeight = tonumber(height) or 1024
+    if not CanManageScene(source, scene) then
+        return false
+    end
+
+    local safeWidth = math.floor(Clamp(width, 1, 16384))
+    local safeHeight = math.floor(Clamp(height, 1, 16384))
+
+    print(('^5[DjonStNix Scenes]^7 Migrating legacy dimensions for ID: %s (%dx%d)'):format(id, safeWidth, safeHeight))
+    scene.imageWidth = safeWidth
+    scene.imageHeight = safeHeight
     scene.imageAspectRatio = scene.imageWidth / scene.imageHeight
-    
-    -- No need to call SaveScenes here as the periodical cleanup and resource stop handle it
-    -- but we trigger a refresh so everyone sees the corrected shape in real-time
-    RefreshScenes()
+
+    QueueScenePersist()
+    BroadcastSceneUpsert(scene)
     return true
 end)
 
@@ -981,20 +1274,22 @@ RegisterNetEvent('djonstnix-scenes:server:LoadScenes', function()
     scenes = {}
     for _, scene in pairs(reqScenes) do
         local normalized = NormalizeLoadedScene(scene)
-        if normalized then
-            scenes[#scenes + 1] = normalized
+        if normalized and normalized.id then
+            scenes[normalized.id] = normalized
         end
     end
 
-    RefreshScenes()
+    BroadcastSceneSet()
 end)
 
 CreateThread(function()
     while true do
         Wait(60000)
 
-        if PruneExpiredScenes() then
-            RefreshScenes()
+        local removedIds = PruneExpiredScenes()
+        if #removedIds > 0 then
+            QueueScenePersist()
+            BroadcastSceneRemove(removedIds)
         end
     end
 end)
@@ -1004,7 +1299,7 @@ AddEventHandler('onResourceStop', function(resourceName)
         return
     end
 
-    SaveScenes(scenes)
+    PersistScenesNow()
 end)
 
 AddEventHandler('onResourceStart', function(resourceName)

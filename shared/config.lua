@@ -28,6 +28,8 @@ Config.SceneImages = {
         jpeg = true,
         webp = true,
         gif = true,
+        mp4 = true,
+        webm = true,
     },
     debug = false
 }
@@ -56,7 +58,7 @@ Config.SceneMedia = {
             apiBaseUrl = 'https://tenor.googleapis.com/v2',
             clientKey = 'djonstnix-scenes',
             limit = 18,
-            mediaFilter = 'gif,tinygif,mediumgif',
+            mediaFilter = 'gif,tinygif,mediumgif,gifpreview,mp4,tinymp4,nanomp4,webm,tinywebm,nanowebm',
             contentFilter = 'medium',
         }
     }
