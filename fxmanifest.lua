@@ -1,10 +1,20 @@
+-- ==============================================================================
+-- 👑 DJONSTNIX BRANDING
+-- ==============================================================================
+-- DEVELOPED BY: DjonStNix (DjonLuc)
+-- GITHUB: https://github.com/Djonluc
+-- DISCORD: https://discord.gg/ahAJWRTMBv
+-- YOUTUBE: https://www.youtube.com/@Djonluc
+-- EMAIL: djonstnix@gmail.com
+-- LICENSE: MIT License (c) 2026 DjonStNix (DjonLuc)
+-- ==============================================================================
+
 fx_version 'cerulean'
 game 'gta5'
-ui_page 'ui/preview.html'
 
 name "djonstnix-scenes"
 description "An optimised scene resource utilising ox_lib."
-author "More Than Code"
+author "DjonStNix (DjonLuc)"
 version "1.0.0"
 
 lua54 'yes'
@@ -26,16 +36,28 @@ server_scripts {
 	'server/main.lua'
 }
 
+ui_page 'ui/preview.html'
+
 files {
 	'storage/save.json',
 	'storage/bans.json',
+    'ui/preview.html',
+    'ui/preview.js',
+    'ui/preview.css',
     'ui/image.html',
     'ui/gif-decoder.js',
     'ui/styles.css',
     'ui/app.js',
-    'ui/preview.html',
-    'ui/preview.css',
-    'ui/preview.js',
     'ui/images/.gitkeep',
     'ui/images/*'
+}
+
+-- ==============================================================================
+-- 🔒 ESCROW CONFIGURATION (TEBEX READY)
+-- ==============================================================================
+
+escrow_ignore {
+    'shared/config.lua',
+    'locales/*.lua',
+    'README.md'
 }

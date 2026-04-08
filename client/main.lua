@@ -15,6 +15,25 @@ local ShowScenePreview
 local globalTxd = ('txd_scenes_%d'):format(math.random(1000, 9999))
 local globalTxdHandle = CreateRuntimeTxd(globalTxd)
 
+-- DUI Keep-Alive Thread (Prevents GIF freezing by forcing texture updates)
+CreateThread(function()
+    while true do
+        Wait(0) -- every frame
+
+        for id, tracker in pairs(duiTracker) do
+            if tracker and tracker.dui then
+                local handle = GetDuiHandle(tracker.dui)
+                
+                if handle and handle ~= 0 then
+                    -- This keeps Chromium "alive" by simulating a draw origin change
+                    SetDrawOrigin(0.0, 0.0, 0.0, 0)
+                    ClearDrawOrigin()
+                end
+            end
+        end
+    end
+end)
+
 local SceneFonts = {
     { value = 'chalet_london', label = 'Standard', id = 0 },
     { value = 'house_script', label = 'Cursive', id = 1 },
@@ -317,7 +336,7 @@ local function NormalizeImageSource(path)
 end
 
 local function ValidateSceneImagePath(imagePath)
-    local validation = lib.callback.await('qb-scenes:server:prepareImagePath', nil, imagePath)
+    local validation = lib.callback.await('djonstnix-scenes:server:prepareImagePath', nil, imagePath)
     if type(validation) ~= 'table' then
         return {
             ok = false,
@@ -414,8 +433,24 @@ local function GetSceneImage(scene, id)
 
     -- 3. Cache Hit
     if imageCache[cacheKey] then
-        AcquireImageReference(cacheKey, id, imageCache[cacheKey])
-        return imageCache[cacheKey]
+        local img = imageCache[cacheKey]
+        local isFirstAcquisition = not duiTracker[id]
+
+        AcquireImageReference(cacheKey, id, img)
+
+        -- 🔥 KICK: If a permanent scene takes over a handle for the first time,
+        -- force-refresh the URL to ensure the animation loop starts fresh.
+        if isFirstAcquisition and id ~= 'placement' and img.dui and img.dui ~= 0 then
+            local duiUrl = ('https://cfx-nui-%s/ui/image.html?src=%s&kind=%s&v=%d'):format(
+                GetCurrentResourceName(), 
+                UrlEncode(imagePath), 
+                UrlEncode(mediaKind),
+                GetGameTimer()
+            )
+            SetDuiUrl(img.dui, duiUrl)
+        end
+
+        return img
     end
 
     -- 4. Create New Handle with delayed texture warmup to avoid preview->placement crashes
@@ -495,7 +530,7 @@ ProcessPreviewQueue = function()
                     item.scene.imageHeight = detection.height
                     item.scene.imageAspectRatio = Clamp(detection.aspectRatio or 1.0, 0.2, 5.0)
                     print(('^5[DjonStNix Scenes]^7 Corrected ID %s to %dx%d'):format(item.id, detection.width, detection.height))
-                    lib.callback.await('qb-scenes:server:updateSceneDimensions', nil, item.id, detection.width, detection.height)
+                    lib.callback.await('djonstnix-scenes:server:updateSceneDimensions', nil, item.id, detection.width, detection.height)
                 end
                 item.scene.legacyDimensions = false
             end
@@ -620,7 +655,7 @@ local function CloseMediaBrowser(selection)
 end
 
 local function OpenMediaBrowser()
-    local providers = lib.callback.await('qb-scenes:server:getMediaProviders')
+    local providers = lib.callback.await('djonstnix-scenes:server:getMediaProviders')
     if type(providers) ~= 'table' or #providers == 0 then
         QBCore.Functions.Notify(Lang:t('notify.browser_not_configured'), 'error')
         return nil
@@ -902,6 +937,9 @@ local function DrawImage3D(scene, id, options)
     
     local faceCamera = scene.faceCamera ~= false
     local rot = scene.rotation or { x = 0.0, y = 0.0, z = 0.0 }
+    local pitch = rot.x or 0.0
+    local roll  = rot.y or 0.0
+    local yaw   = rot.z or 0.0
 
     -- UNIFIED OPTIMIZED MARKER RENDERING:
     -- We use DrawMarker(9) for everything to ensure 'Depth Occlusion' (hides behind players/walls).
@@ -911,7 +949,7 @@ local function DrawImage3D(scene, id, options)
     DrawMarker(9, 
         sceneCoords.x, sceneCoords.y, sceneCoords.z, -- Coords
         0.0, 0.0, 0.0, -- Direction
-        (rot.x or 0.0) + 90.0, rot.y or 0.0, rot.z or 0.0, -- Rotation
+        pitch + 90.0, roll, yaw, -- Rotation
         worldWidth + 0.0, worldHeight + 0.0, worldHeight + 0.0, -- Double-Axis Proportional Fix
         255, 255, 255, alpha, -- Colors
         false, -- Bob
@@ -1094,10 +1132,17 @@ local function GetCameraPlacementBasis()
     local yaw = math.rad(rotation.z or 0.0)
 
     local forward = {
-        x = -math.sin(yaw) * math.abs(math.cos(pitch)),
-        y = math.cos(yaw) * math.abs(math.cos(pitch)),
-        z = math.sin(pitch),
+        x = -math.sin(yaw) * math.cos(pitch),
+        y = math.cos(yaw) * math.cos(pitch),
+        z = math.sin(pitch)
     }
+
+    local length = math.sqrt(forward.x^2 + forward.y^2 + forward.z^2)
+    if length > 0 then
+        forward.x = forward.x / length
+        forward.y = forward.y / length
+        forward.z = forward.z / length
+    end
 
     local right = {
         x = math.cos(yaw),
@@ -1141,8 +1186,6 @@ local function DisablePlacementCombatControls()
         DisableControlAction(group, 24, true) -- attack
         DisableControlAction(group, 25, true) -- aim
         DisableControlAction(group, 37, true) -- weapon wheel
-        DisableControlAction(group, 44, true) -- cover / custom bind target
-        DisableControlAction(group, 45, true) -- reload / custom bind target
         DisableControlAction(group, 69, true)
         DisableControlAction(group, 70, true)
         DisableControlAction(group, 92, true)
@@ -1173,27 +1216,50 @@ local function CoordPicker(sceneDraft)
     local previewScene = sceneDraft
 
     isPlacing = true -- Acquire placement lock
-    local baseCoords = GetPlacementAnchorCoords()
+    isPlacing = true -- Acquire placement lock
     local positionOffset = { x = 0.0, y = 0.0, z = 0.0 }
     local depthOffset = 0.0
+    local controlsLocked = false
     local enabled = true
     local promiseRef = promise.new()
 
-    lib.showTextUI(Lang:t('textUI.place_preview'), {
+    lib.showTextUI([[
+E → Confirm Placement  
+BACKSPACE → Cancel  
+
+F3 → Toggle Movement/Combat Lock  
+
+ALT + W/S → Move Forward / Back  
+ALT + A/D → Move Left / Right  
+ALT + SPACE / CTRL → Move Up / Down  
+
+Arrow Up / Down → Tilt Forward / Back  
+Arrow Left / Right → Tilt Left / Right  
+
+Q / R → Rotate (Spin)  
+
+Mouse Wheel → Scale  
+SHIFT → Precision Mode  
+
+G → Reset Position  
+F → Toggle Face Camera
+]], {
         position = 'bottom-center'
     })
 
+    -- Placement Render Thread
     CreateThread(function()
         local offset = 0.2
         while enabled do
             Wait(0)
 
+            local baseCoords = GetPlacementAnchorCoords()
             local coords = {
                 x = baseCoords.x,
                 y = baseCoords.y,
                 z = baseCoords.z,
             }
-            local forward = GetCameraPlacementBasis()
+            local forward, _ = GetCameraPlacementBasis()
             coords.x = coords.x + positionOffset.x + ((forward.x or 0.0) * depthOffset)
             coords.y = coords.y + positionOffset.y + ((forward.y or 0.0) * depthOffset)
             coords.z = coords.z + positionOffset.z + ((forward.z or 0.0) * depthOffset)
@@ -1230,20 +1296,31 @@ local function CoordPicker(sceneDraft)
         end
     end)
 
+    -- Placement Control Thread
     CreateThread(function()
         while enabled do
             Wait(0)
 
-            DisablePlacementCombatControls()
-            DisablePlacementMovementControls()
-            DisableControlAction(0, 44, true) -- Q
-            DisableControlAction(0, 45, true) -- R
+            -- Toggle Lock
+            if IsControlJustPressed(0, 170) then
+                controlsLocked = not controlsLocked
+                if controlsLocked then
+                    PlaySoundFrontend(-1, "SELECT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+                else
+                    PlaySoundFrontend(-1, "CANCEL", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+                end
+            end
+
+            -- Apply Conditional Disables
+            if controlsLocked then
+                DisablePlacementCombatControls()
+                DisablePlacementMovementControls()
+            end
+
+            -- Essential Disables (Always Active)
             DisableControlAction(0, 23, true) -- enter / vehicle
             DisableControlAction(0, 75, true) -- exit vehicle
             DisableControlAction(0, 200, true) -- pause
-            if cache.ped and cache.ped ~= 0 then
-                FreezeEntityPosition(cache.ped, true)
-            end
 
             local shiftHeld = IsControlPressed(0, 21) -- Shift (Precision)
             local rotationSpeed = shiftHeld and 0.35 or 1.5
@@ -1252,22 +1329,28 @@ local function CoordPicker(sceneDraft)
             local secondaryScaleDelta = shiftHeld and 0.01 or 0.03
             local _, right = GetCameraPlacementBasis()
 
-            if IsDisabledControlPressed(0, 32) then -- W
-                depthOffset = depthOffset + moveSpeed
-            elseif IsDisabledControlPressed(0, 33) then -- S
-                depthOffset = depthOffset - moveSpeed
-            end
+            -- Manual Position Nudges (Require Alt to not block movement)
+            if IsControlPressed(0, 19) then -- LEFT ALT
+                if IsDisabledControlPressed(0, 32) then -- W
+                    depthOffset = depthOffset + moveSpeed
+                elseif IsDisabledControlPressed(0, 33) then -- S
+                    depthOffset = depthOffset - moveSpeed
+                end
 
-            if IsDisabledControlPressed(0, 34) then -- A
-                ApplyPositionDelta(positionOffset, right, -moveSpeed)
-            elseif IsDisabledControlPressed(0, 35) then -- D
-                ApplyPositionDelta(positionOffset, right, moveSpeed)
-            end
+                if IsDisabledControlPressed(0, 34) then -- A
+                    ApplyPositionDelta(positionOffset, right, -moveSpeed)
+                elseif IsDisabledControlPressed(0, 35) then -- D
+                    ApplyPositionDelta(positionOffset, right, moveSpeed)
+                end
 
-            if IsDisabledControlPressed(0, 22) then -- SPACE
-                positionOffset.z = positionOffset.z + moveSpeed
-            elseif IsDisabledControlPressed(0, 36) then -- CTRL
-                positionOffset.z = positionOffset.z - moveSpeed
+                if IsDisabledControlPressed(0, 22) then -- SPACE
+                    positionOffset.z = positionOffset.z + moveSpeed
+                elseif IsDisabledControlPressed(0, 36) then -- CTRL
+                    positionOffset.z = positionOffset.z - moveSpeed
+                end
+                
+                -- Disable movement when Alt is held for precision
+                DisablePlacementMovementControls()
             end
 
             -- Scaling
@@ -1287,27 +1370,28 @@ local function CoordPicker(sceneDraft)
                 end
             end
 
-            -- Rotation
-            -- Up/Down = top/bottom tilt, Left/Right = side-edge tilt
-            if IsControlPressed(0, 172) then -- Arrow Up (Pitch +)
+            -- Rotation (Seesaw Behavior)
+            -- Arrow Up/Down = Pitch (X axis), Arrow Left/Right = Roll (Y axis)
+            if IsControlPressed(0, 172) then -- Arrow Up
                 ApplyRotationDelta(sceneDraft, 'x', rotationSpeed)
-            elseif IsControlPressed(0, 173) then -- Arrow Down (Pitch -)
+            elseif IsControlPressed(0, 173) then -- Arrow Down
                 ApplyRotationDelta(sceneDraft, 'x', -rotationSpeed)
-            elseif IsControlPressed(0, 174) then -- Arrow Left (push left edge away / right edge toward)
+            elseif IsControlPressed(0, 174) then -- Arrow Left
                 ApplyRotationDelta(sceneDraft, 'y', rotationSpeed)
-            elseif IsControlPressed(0, 175) then -- Arrow Right (push right edge away / left edge toward)
+            elseif IsControlPressed(0, 175) then -- Arrow Right
                 ApplyRotationDelta(sceneDraft, 'y', -rotationSpeed)
             end
 
             -- Spin the whole image on its facing axis
-            if IsDisabledControlPressed(0, 44) then -- Q
+            if IsControlPressed(0, 44) then -- Q
                 ApplyRotationDelta(sceneDraft, 'z', rotationSpeed)
-            elseif IsDisabledControlPressed(0, 45) then -- R
+            end
+
+            if IsControlPressed(0, 45) then -- R
                 ApplyRotationDelta(sceneDraft, 'z', -rotationSpeed)
             end
 
             if IsControlJustPressed(0, 47) then -- G
-                baseCoords = GetPlacementAnchorCoords()
                 positionOffset = { x = 0.0, y = 0.0, z = 0.0 }
                 depthOffset = 0.0
             end
@@ -1319,7 +1403,8 @@ local function CoordPicker(sceneDraft)
             end
 
             if IsControlJustPressed(0, 38) then -- E
-                local forward = GetCameraPlacementBasis()
+                local baseCoords = GetPlacementAnchorCoords()
+                local forward, _ = GetCameraPlacementBasis()
                 local coords = {
                     x = baseCoords.x + positionOffset.x + ((forward.x or 0.0) * depthOffset),
                     y = baseCoords.y + positionOffset.y + ((forward.y or 0.0) * depthOffset),
@@ -1348,9 +1433,6 @@ local function CoordPicker(sceneDraft)
     end)
 
     local result = Citizen.Await(promiseRef)
-    if cache.ped and cache.ped ~= 0 then
-        FreezeEntityPosition(cache.ped, false)
-    end
     ReleaseImageReference('placement')
     isPlacing = false -- Release placement lock
     return result
@@ -1565,8 +1647,30 @@ local function PrepareSceneImageDraft(sceneDraft)
         return false
     end
 
-    -- Release any existing 'placement' reference to ensure a clean start
-    ReleaseImageReference('placement')
+    -- 🔥 STEP 1: Keep placement DUI alive until handover or timeout
+    CreateThread(function()
+        local timeout = GetGameTimer() + 2000 -- Max 2 seconds protection
+
+        while GetGameTimer() < timeout do
+            local hasRealScene = false
+
+            -- If any persistent scene exists now, we can safely release the ghost
+            for id, _ in pairs(scenes) do
+                if id ~= 'placement' then
+                    hasRealScene = true
+                    break
+                end
+            end
+
+            if hasRealScene then
+                break
+            end
+
+            Wait(50)
+        end
+
+        ReleaseImageReference('placement')
+    end)
 
     sceneDraft.imageWidth = tonumber(preview.width) or 1024
     sceneDraft.imageHeight = tonumber(preview.height) or 1024
@@ -1620,8 +1724,12 @@ local function createScene(initialScene)
     sceneDraft.rotation = placement.rotation or sceneDraft.rotation
     sceneDraft.faceCamera = placement.faceCamera ~= nil and placement.faceCamera or sceneDraft.faceCamera
 
-    local result = lib.callback.await('qb-scenes:server:newScene', nil, sceneDraft)
+    local result = lib.callback.await('djonstnix-scenes:server:newScene', nil, sceneDraft)
+
     NotifyResult(result, 'scene_created', 'failed')
+    
+    -- 🔥 STEP 2: Force immediate acquisition of the new scene's DUI
+    UpdateSceneImageStreaming()
 end
 
 local function browseSceneMedia()
@@ -1679,7 +1787,7 @@ local function editClosestScene()
         sceneDraft.coords = scene.coords
     end
 
-    local result = lib.callback.await('qb-scenes:server:updateScene', nil, index, sceneDraft)
+    local result = lib.callback.await('djonstnix-scenes:server:updateScene', nil, index, sceneDraft)
     NotifyResult(result, 'scene_updated', 'failed_update')
 end
 
@@ -1699,7 +1807,7 @@ local function clearNearbyScenes()
     if not input then return end
 
     local radius = tonumber(input[1])
-    local result = lib.callback.await('qb-scenes:server:clearArea', false, radius)
+    local result = lib.callback.await('djonstnix-scenes:server:clearArea', false, radius)
     
     if result and result.ok then
         QBCore.Functions.Notify(Lang:t('notify.cleaned_area'):format(result.count), 'success')
@@ -1765,7 +1873,7 @@ local function destroyAimedScene()
         return
     end
 
-    local result = lib.callback.await('qb-scenes:server:destroyScene', nil, targetId)
+    local result = lib.callback.await('djonstnix-scenes:server:destroyScene', nil, targetId)
     NotifyResult(result, 'succes_destroy', 'failed_destroy')
 end
 
@@ -1791,7 +1899,7 @@ local function OpenSceneMenu()
     }
 
     -- Administrative cleanup option
-    local isAdmin = lib.callback.await('qb-scenes:server:hasAdminPermission', false)
+    local isAdmin = lib.callback.await('djonstnix-scenes:server:hasAdminPermission', false)
     if isAdmin then
         manageOptions[#manageOptions + 1] = {
             title = Lang:t('optionsScene.cleanup'),
@@ -1876,7 +1984,7 @@ RegisterNUICallback('sceneMediaSearch', function(data, cb)
     local provider = Trim(data and data.provider)
     local query = Trim(data and data.query)
 
-    local result = lib.callback.await('qb-scenes:server:searchMedia', nil, provider, query)
+    local result = lib.callback.await('djonstnix-scenes:server:searchMedia', nil, provider, query)
     if type(result) ~= 'table' then
         cb({
             ok = false,
@@ -1899,11 +2007,11 @@ RegisterNUICallback('sceneMediaClose', function(_, cb)
     cb({ ok = true })
 end)
 
-RegisterNetEvent('qb-scenes:client:setScenes', function(serverScenes)
+RegisterNetEvent('djonstnix-scenes:client:setScenes', function(serverScenes)
     SyncScenes(serverScenes or {})
 end)
 
-RegisterNetEvent('qb-scenes:client:upsertScene', function(scene)
+RegisterNetEvent('djonstnix-scenes:client:upsertScene', function(scene)
     if not scene or not scene.id then
         return
     end
@@ -1911,7 +2019,7 @@ RegisterNetEvent('qb-scenes:client:upsertScene', function(scene)
     UpsertScene(scene.id, scene)
 end)
 
-RegisterNetEvent('qb-scenes:client:removeScenes', function(sceneIds)
+RegisterNetEvent('djonstnix-scenes:client:removeScenes', function(sceneIds)
     for _, sceneId in ipairs(sceneIds or {}) do
         if sceneId ~= 'placement' or not isPlacing then
             RemoveScene(sceneId)
@@ -1919,7 +2027,7 @@ RegisterNetEvent('qb-scenes:client:removeScenes', function(sceneIds)
     end
 end)
 
-RegisterNetEvent('qb-scenes:client:refreshScenes', function(serverScenes)
+RegisterNetEvent('djonstnix-scenes:client:refreshScenes', function(serverScenes)
     SyncScenes(serverScenes or {})
 end)
 
@@ -1975,13 +2083,13 @@ CreateThread(function()
 end)
 
 CreateThread(function()
-    local serverScenes = lib.callback.await('qb-scenes:server:getScenes')
+    local serverScenes = lib.callback.await('djonstnix-scenes:server:getScenes')
     SyncScenes(serverScenes or {})
 end)
 
 CreateThread(function()
     while true do
-        Wait(1500)
+        Wait(100)
         UpdateSceneImageStreaming()
     end
 end)

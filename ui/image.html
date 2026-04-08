@@ -1,16 +1,61 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MTC Scene Image</title>
-    <link rel="stylesheet" href="styles.css">
+    <title>DjonStNix Scene Media</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: transparent;
+        }
+        #media {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
 </head>
 <body>
-    <img id="scene-image" alt="Scene image" referrerpolicy="no-referrer">
-    <canvas id="scene-canvas" class="hidden" aria-hidden="true"></canvas>
-    <video id="scene-video" muted loop playsinline preload="auto" class="hidden" aria-hidden="true"></video>
-    <script src="gif-decoder.js"></script>
-    <script src="app.js"></script>
+    <div id="media"></div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const src = params.get("src");
+        const container = document.getElementById("media");
+
+        if (!src || !container) {
+            console.log("Missing src or container");
+        } else {
+            const lowerSrc = src.toLowerCase();
+
+            // ✅ FIXED: detect GIF even with query params
+            const isGif = lowerSrc.includes(".gif");
+
+            const img = document.createElement("img");
+
+            if (isGif) {
+                // ✅ Force reload so GIF doesn't freeze
+                const separator = src.includes("?") ? "&" : "?";
+                img.src = src + separator + "t=" + Date.now();
+                console.log("GIF loaded:", img.src);
+            } else {
+                img.src = src;
+                console.log("Image loaded:", img.src);
+            }
+
+            img.style.width = "100%";
+            img.style.height = "100%";
+            img.style.objectFit = "contain";
+
+            container.appendChild(img);
+        }
+    </script>
 </body>
 </html>

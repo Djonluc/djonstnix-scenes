@@ -555,11 +555,11 @@ local function PersistScenesNow()
 end
 
 local function BroadcastSceneSet(target)
-    TriggerClientEvent('qb-scenes:client:setScenes', target or -1, scenes)
+    TriggerClientEvent('djonstnix-scenes:client:setScenes', target or -1, scenes)
 end
 
 local function BroadcastSceneUpsert(scene, target)
-    TriggerClientEvent('qb-scenes:client:upsertScene', target or -1, scene)
+    TriggerClientEvent('djonstnix-scenes:client:upsertScene', target or -1, scene)
 end
 
 local function BroadcastSceneRemove(sceneIds, target)
@@ -567,7 +567,7 @@ local function BroadcastSceneRemove(sceneIds, target)
         return
     end
 
-    TriggerClientEvent('qb-scenes:client:removeScenes', target or -1, sceneIds)
+    TriggerClientEvent('djonstnix-scenes:client:removeScenes', target or -1, sceneIds)
 end
 
 local function HasAdminPermission(source)
@@ -1087,11 +1087,11 @@ QBCore.Commands.Add('cleanscenes', Lang:t('commands.cleanup_description'), {
     end
 end, 'admin')
 
-lib.callback.register('qb-scenes:server:hasAdminPermission', function(source)
+lib.callback.register('djonstnix-scenes:server:hasAdminPermission', function(source)
     return HasAdminPermission(source)
 end)
 
-lib.callback.register('qb-scenes:server:getScenes', function()
+lib.callback.register('djonstnix-scenes:server:getScenes', function()
     local removedIds = PruneExpiredScenes()
     if #removedIds > 0 then
         QueueScenePersist()
@@ -1101,11 +1101,11 @@ lib.callback.register('qb-scenes:server:getScenes', function()
     return scenes
 end)
 
-lib.callback.register('qb-scenes:server:getMediaProviders', function()
+lib.callback.register('djonstnix-scenes:server:getMediaProviders', function()
     return GetEnabledMediaProviders()
 end)
 
-lib.callback.register('qb-scenes:server:searchMedia', function(_, provider, query)
+lib.callback.register('djonstnix-scenes:server:searchMedia', function(_, provider, query)
     provider = Trim(provider):lower()
     query = Trim(query)
 
@@ -1132,11 +1132,11 @@ lib.callback.register('qb-scenes:server:searchMedia', function(_, provider, quer
     }
 end)
 
-lib.callback.register('qb-scenes:server:prepareImagePath', function(_, imagePath)
+lib.callback.register('djonstnix-scenes:server:prepareImagePath', function(_, imagePath)
     return ValidateImagePath(imagePath)
 end)
 
-lib.callback.register('qb-scenes:server:newScene', function(source, data)
+lib.callback.register('djonstnix-scenes:server:newScene', function(source, data)
     local identifier = GetIdentifier(source, 'license')
     if not identifier then
         return { ok = false, reason = 'failed' }
@@ -1161,7 +1161,7 @@ lib.callback.register('qb-scenes:server:newScene', function(source, data)
     return { ok = true }
 end)
 
-lib.callback.register('qb-scenes:server:updateScene', function(source, id, data)
+lib.callback.register('djonstnix-scenes:server:updateScene', function(source, id, data)
     local scene = scenes[id]
     if not scene then
         return { ok = false, reason = 'scene_missing' }
@@ -1195,7 +1195,7 @@ lib.callback.register('qb-scenes:server:updateScene', function(source, id, data)
     return { ok = true }
 end)
 
-lib.callback.register('qb-scenes:server:destroyScene', function(source, id)
+lib.callback.register('djonstnix-scenes:server:destroyScene', function(source, id)
     local scene = scenes[id]
     if not scene then
         return { ok = false, reason = 'scene_missing' }
@@ -1215,7 +1215,7 @@ lib.callback.register('qb-scenes:server:destroyScene', function(source, id)
     return { ok = true }
 end)
 
-lib.callback.register('qb-scenes:server:clearArea', function(source, radius)
+lib.callback.register('djonstnix-scenes:server:clearArea', function(source, radius)
     if not HasAdminPermission(source) then
         return { ok = false, reason = 'scene_no_permission' }
     end
@@ -1245,7 +1245,7 @@ lib.callback.register('qb-scenes:server:clearArea', function(source, radius)
     return { ok = false, reason = 'scene_nearby' }
 end)
 
-lib.callback.register('qb-scenes:server:updateSceneDimensions', function(source, id, width, height)
+lib.callback.register('djonstnix-scenes:server:updateSceneDimensions', function(source, id, width, height)
     local scene = scenes[id]
     if not scene then
         return false
